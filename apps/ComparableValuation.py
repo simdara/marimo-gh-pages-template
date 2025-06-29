@@ -4,17 +4,6 @@ __generated_with = "0.14.7"
 app = marimo.App(width="medium")
 
 
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(
-        r"""
-    ## **Company Valuation using Comparable Analysis**
-    ***
-    """
-    )
-    return
-
-
 @app.cell
 def _():
     import marimo as mo
@@ -23,34 +12,35 @@ def _():
     import numpy as np
     import altair as alt
     from sklearn.linear_model import LinearRegression
-    import fastexcel
+    import openpyxl
     return LinearRegression, alt, mo, np, pd, pl
 
 
 @app.cell
-def _(pd, pl):
+def _(pd):
     # Read raw excel file
-    DataRaw = pl.read_excel("https://simdara.github.io/Data/Data_ASEANFirms.xlsx")
-    return (DataRaw,)
+    DataRaw = pd.read_excel("https://simdara.github.io/Data/Data_ASEANFirms.xlsx",dtype=str)
+    #DataRaw = pl.from_pandas(DataRaw)
+    Data = DataRaw.iloc[:,:]
+    return Data, DataRaw
 
 
 @app.cell
-def _(DataRaw, pl):
+def _(Data, DataRaw, pd):
     # Convert string to float from column 8 onwards
     allColnames = DataRaw.columns # all column names
     cols_to_convert = allColnames[8:]
     #
-    expressions = [pl.col(cname).cast(pl.Float64,strict=False) for cname in cols_to_convert if DataRaw[cname].dtype==pl.Utf8]
-    #
-    Data = DataRaw.with_columns(expressions)
-    return (Data,)
+    for c in cols_to_convert:
+        Data[c] = pd.to_numeric(DataRaw[c],errors='coerce')
+    return
 
 
 @app.cell
-def _(Data):
+def _(Data, np):
     #Get unique value of primary industry and industry
-    PrimaryIndustry = Data["Primary Industry"].unique().sort()[1:]
-    Industry = Data["Industry"].unique().sort()[1:]
+    PrimaryIndustry = np.sort(Data["Primary Industry"].dropna().unique())
+    Industry = np.sort(Data["Industry"].dropna().unique())
     return (Industry,)
 
 
@@ -59,7 +49,7 @@ def _(Data, Industry):
     # create dictionary with industry as key and sub-industry as value
     IndustryDict ={}
     for ind in Industry:
-        IndustryDict [ind] = Data["Primary Industry"].filter(Data['Industry']==ind).unique()
+        IndustryDict [ind] = Data["Primary Industry"][Data["Industry"]==ind].unique()
     return (IndustryDict,)
 
 
@@ -85,9 +75,9 @@ def _(Indus_dd, mo):
     return (checkboxes,)
 
 
-@app.cell(hide_code=True)
+@app.cell
 def _(mo):
-    mo.md("""**Choose one or more sub-industries**""")
+    mo.md(r"""**Choose one or more sub-industries**""")
     return
 
 
@@ -98,27 +88,23 @@ def _(checkboxes, mo):
 
 
 @app.cell
-def _(Data, Indus_dd, checkboxes, pl):
-    subInd = pl.DataFrame(Indus_dd.value) # convert polar Dataframe
-    selectedSubIndustry = subInd.filter(checkboxes.value).to_numpy()[:,0] # convert to 1D numpy array
-    usedData = Data.filter(Data["Primary Industry"].is_in(selectedSubIndustry))
+def _(Data, Indus_dd, checkboxes, pd):
+    subInd = pd.DataFrame({"SubInd": Indus_dd.value, "Selected":checkboxes.value}) # convert pd Dataframe
+    selectedSubIndustry = subInd["SubInd"][subInd["Selected"]==True].to_numpy()
+    usedData = Data[Data["Primary Industry"].isin(selectedSubIndustry)]
+
     return (usedData,)
 
 
 @app.cell
 def _(mo):
     keywords_ui = mo.ui.text(placeholder="Search in business description....", label="Keywords:", full_width=True)
+    keywords_ui
     return (keywords_ui,)
 
 
 @app.cell
-def _(keywords_ui):
-    keywords_ui
-    return
-
-
-@app.cell
-def _(keywords_ui, usedData):
+def _(keywords_ui, np, usedData):
     keywords = keywords_ui.value
     kws = keywords.split(";")    
     #
@@ -126,8 +112,9 @@ def _(keywords_ui, usedData):
         matchedKW = [True for elem in usedData["Business Description"]]
     else:
         matchedKW = [sum([elem.find(kw)>0 for kw in kws])>0 for elem in usedData["Business Description"]]
-
-    filteredData = usedData.filter(matchedKW)
+    #
+    usedData["matchedKW"] = np.array(matchedKW)
+    filteredData = usedData[usedData["matchedKW"]].iloc[:,0:-1]
     return (filteredData,)
 
 
@@ -147,18 +134,21 @@ def _(L_dd, U_dd, mo):
 
 
 @app.cell
-def _(L_dd, U_dd, filteredData, pl):
+def _(L_dd, U_dd, filteredData):
     # Find outliers of filtered data from column 8 onwards
     LBound = L_dd.value
     UBound = U_dd.value
     #print(LBound)
     #print(UBound)
     #
-    nrows = filteredData[:,8].count()
-    std =filteredData[:,8:].std()
-    mu = filteredData[:,8:].mean()
-    normFilteredData = (filteredData[:,8:]-pl.concat([mu]*nrows))/pl.concat([std]*nrows)
-    Ex_Outliers = pl.from_pandas((normFilteredData.to_pandas()>LBound) & (normFilteredData.to_pandas()<UBound))
+    nrows = filteredData.shape[0]
+    std =filteredData.iloc[:,8:].std()
+    mu = filteredData.iloc[:,8:].mean()
+    normFilteredData = filteredData.iloc[:,8:].copy()
+    for cn in filteredData.iloc[:,8:].columns:
+        normFilteredData[cn] = (filteredData[cn]-mu[cn])/std[cn]
+
+    Ex_Outliers = (normFilteredData>LBound) & (normFilteredData<UBound)
     return (Ex_Outliers,)
 
 
@@ -197,10 +187,10 @@ def _(np, optInputs_mo, pl, reqInputs_mo):
     return (target_,)
 
 
-@app.cell(hide_code=True)
+@app.cell
 def _(mo):
     mo.md(
-        """
+        r"""
     ***
     ###**Histogram and descriptive statitics**
     """
@@ -227,16 +217,16 @@ def _(Indus_dd, filteredData, mo):
     return Metrics_dd, Metrics_dd2
 
 
-@app.cell(hide_code=True)
-def _(Ex_Outliers, Hist_keymetrics, Metrics_dd, filteredData, mo):
-    selMetric = filteredData["No",Metrics_dd.value]
-    selMetric_exOut = selMetric.filter(Ex_Outliers[Metrics_dd.value]) # excluded outliers
+@app.cell
+def _(Ex_Outliers, Hist_keymetrics, Metrics_dd, filteredData, mo, pd):
+    selMetric = filteredData[["No",Metrics_dd.value]]
+    selMetric_exOut = selMetric[Ex_Outliers[Metrics_dd.value]==True] # excluded outliers
     #
     Chart_1 = Hist_keymetrics(selMetric_exOut)
     #
-    desc1_pd = selMetric_exOut[:, 1].describe().to_pandas()
+    desc1_pd = pd.DataFrame(selMetric_exOut.iloc[:, 1].describe())
     # use statistic as index and transpose
-    desc1_pd = desc1_pd.set_index("statistic").T
+    desc1_pd = desc1_pd.T
     # change number format
     for col in desc1_pd.columns:
         desc1_pd[col] = desc1_pd[col].apply(lambda x: f"{x:.2f}")
@@ -245,26 +235,25 @@ def _(Ex_Outliers, Hist_keymetrics, Metrics_dd, filteredData, mo):
     return Chart_1, table1
 
 
-@app.cell(hide_code=True)
-def _(Ex_Outliers, Hist_keymetrics, Metrics_dd2, filteredData, mo):
-    selMetric2 = filteredData["No",Metrics_dd2.value]
-    selMetric2_exOut = selMetric2.filter(Ex_Outliers[Metrics_dd2.value]) # excluded outliers
+@app.cell
+def _(Ex_Outliers, Hist_keymetrics, Metrics_dd2, filteredData, mo, pd):
+    selMetric2 = filteredData[["No",Metrics_dd2.value]]
+    selMetric2_exOut = selMetric2[Ex_Outliers[Metrics_dd2.value]==True] # excluded outliers
     #
     Chart_2 = Hist_keymetrics(selMetric2_exOut)
     #
-    desc2_pd = selMetric2_exOut[:, 1].describe().to_pandas()
+    desc2_pd = pd.DataFrame(selMetric2_exOut.iloc[:, 1].describe())
     # use statistic as index and transpose
-    desc2_pd = desc2_pd.set_index("statistic").T
+    desc2_pd = desc2_pd.T
     # change number format
     for col2 in desc2_pd.columns:
         desc2_pd[col2] = desc2_pd[col2].apply(lambda x: f"{x:.2f}")
 
-    #
     table2 = mo.md(desc2_pd.to_markdown(index=False))
     return Chart_2, table2
 
 
-@app.cell(hide_code=True)
+@app.cell
 def _(alt):
     def Hist_keymetrics(keyMetric):
         hisChart = (
@@ -302,21 +291,20 @@ def _(Chart_1, Chart_2, mo, table1, table2):
 
 
 @app.cell
-def _(Ex_Outliers, filteredData, pl):
+def _(Ex_Outliers, filteredData):
     # Treated outliers by setting them none
-    treatedData = filteredData.with_columns(
-            [pl.when(Ex_Outliers[cname]).then(pl.col(cname)).otherwise(None) for cname in Ex_Outliers.columns]
-    )
+    treatedData = filteredData.copy()
+    for j in Ex_Outliers.columns:
+        treatedData.loc[~Ex_Outliers[j],j]=None
     return (treatedData,)
 
 
-@app.cell(hide_code=True)
+@app.cell
 def _(LinearRegression, alt, np, pl):
     def scatterplot(peerData,TargetData, Xname, Yname):
         # Regression
         model = LinearRegression()
-        xy = peerData[["Company Name",Xname, Yname]].drop_nulls() # drop nulls
-        xy = xy.with_columns([pl.lit("Peer").alias("Peer_Target")]) # add a column indicating peer or target
+        xy = peerData[["Company Name",Xname, Yname]].dropna() # drop nulls
         model.fit(xy[[Xname]], xy[Yname])
 
         R2 = model.score(xy[[Xname]], xy[Yname])    
@@ -397,14 +385,10 @@ def _(LinearRegression, alt, np, pl):
 
 
 @app.cell
-def _(scatterplot, target_, treatedData):
+def _(mo, scatterplot, target_, treatedData):
     target=target_[["Company Name", "ROE, LTM", "Peer_Target"]]
     chart3 = scatterplot(treatedData, target,"ROE, LTM", "P/BV, LTM")
-    return (chart3,)
 
-
-@app.cell
-def _(chart3, mo):
     subtitle_div = mo.md("###**ScatterPlot with Regression Line**")
     scatterplotdiv = mo.accordion({'Scatter Plot with regression👉': chart3})
     mo.vstack([subtitle_div, scatterplotdiv])
@@ -414,9 +398,14 @@ def _(chart3, mo):
 @app.cell
 def _(mo, treatedData):
     sub_div2 = mo.md("###**Table of ASEAN peers**")
-    tablediv = mo.accordion({"Table of matched ASEAN firms👉": treatedData.to_pandas()})
+    tablediv = mo.accordion({"Table of matched ASEAN firms👉": treatedData})
 
     mo.vstack([sub_div2,tablediv])
+    return
+
+
+@app.cell
+def _():
     return
 
 
