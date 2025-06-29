@@ -3,6 +3,10 @@ import marimo
 __generated_with = "0.14.7"
 app = marimo.App(width="medium")
 
+@app.cell
+def _(mo):
+    mo.md("## **Company Valuation using Comparable Analysis** \n ***")
+    return
 
 @app.cell
 def _():
