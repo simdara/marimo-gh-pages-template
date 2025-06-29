@@ -29,8 +29,8 @@ def _():
 @app.cell
 def _(pd, pl):
     # Read raw excel file
-    DataRaw = pd.read_csv("https://simdara.github.io/Data/Data_ASEANFirms.csv",encoding='utf-8')
-    DataRaw = pl.from_pandas(DataRaw)
+    DataRaw = pl.read_csv("https://simdara.github.io/Data/Data_ASEANFirms.csv",encoding='utf-8')
+    #DataRaw = pl.from_pandas(DataRaw)
     return (DataRaw,)
 
 
