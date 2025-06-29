@@ -14,7 +14,7 @@ def _():
     from sklearn.linear_model import LinearRegression
     import openpyxl
     import tabulate
-    return LinearRegression, alt, mo, np, pd, pl
+    return LinearRegression, alt, mo, np, pd
 
 
 @app.cell
@@ -169,7 +169,7 @@ def _(mo):
 
 
 @app.cell
-def _(np, optInputs_mo, pl, reqInputs_mo):
+def _(np, optInputs_mo, pd, reqInputs_mo):
     # collect inputs
     if optInputs_mo.value[0]=="":
         comName = "Target"
@@ -183,7 +183,7 @@ def _(np, optInputs_mo, pl, reqInputs_mo):
     #
     reqInputs = [float(i) if i!="" else np.nan for i in reqInputs_mo.value]
     #
-    target_=pl.DataFrame({'Company Name':comName, 'Net Income':reqInputs[0], 'Total Equity, LTM': reqInputs[1], 'ROE, LTM':reqInputs[2], 'Asset Rank': assetRank, "Peer_Target": "Target"})
+    target_=pd.DataFrame({'Company Name':[comName], 'Net Income':[reqInputs[0]], 'Total Equity, LTM': [reqInputs[1]], 'ROE, LTM':[reqInputs[2]], 'Asset Rank': [assetRank], "Peer_Target": ["Target"]})
     target_
     return (target_,)
 
@@ -301,7 +301,7 @@ def _(Ex_Outliers, filteredData):
 
 
 @app.cell
-def _(LinearRegression, alt, np, pl):
+def _(LinearRegression, alt):
     def scatterplot(peerData,TargetData, Xname, Yname):
         # Regression
         model = LinearRegression()
@@ -346,13 +346,15 @@ def _(LinearRegression, alt, np, pl):
             y=alt.value(10)
         )
         ##---------
-        if (TargetData[Xname]!=np.nan)[0]:
-
+        if ~TargetData[Xname].isnull()[0]:
             # Target company data for plot
-            TData_extended = TargetData.with_columns([pl.lit(model.predict(TargetData[[Xname]])).alias(Yname)])
+            TData_extended = TargetData.copy() 
+            TData_extended[Yname]=model.predict(TargetData[[Xname]])
+            #
             # add label
             textLabel =f"{TData_extended['Company Name'][0]} ({TData_extended[Xname][0]:.2f}, {TData_extended[Yname][0]:.2f})"
-            TData_extended = TData_extended.with_columns([pl.lit(textLabel).alias("label")])
+        
+            TData_extended['label'] = textLabel
             #-----------------------------------------------------------------
             scatter_tar = alt.Chart(TData_extended).mark_point(filled=True,size =100.0,color="red").encode(
                     x=alt.X(field=Xname, type='quantitative'),
@@ -388,6 +390,7 @@ def _(LinearRegression, alt, np, pl):
 @app.cell
 def _(mo, scatterplot, target_, treatedData):
     target=target_[["Company Name", "ROE, LTM", "Peer_Target"]]
+
     chart3 = scatterplot(treatedData, target,"ROE, LTM", "P/BV, LTM")
 
     subtitle_div = mo.md("###**ScatterPlot with Regression Line**")
