@@ -23,13 +23,14 @@ def _():
     import numpy as np
     import altair as alt
     from sklearn.linear_model import LinearRegression
-    return LinearRegression, alt, mo, np, pl
+    return LinearRegression, alt, mo, np, pd, pl
 
 
 @app.cell
-def _(pl):
+def _(pd, pl):
     # Read raw excel file
-    DataRaw = pl.read_excel("https://simdara.github.io/Data/Data_ASEANFirms.xlsx")
+    DataRaw = pd.read_csv("https://simdara.github.io/Data/Data_ASEANFirms.csv")
+    DataRaw = pl.from_pandas(DataRaw)
     return (DataRaw,)
 
 
@@ -46,11 +47,10 @@ def _(DataRaw, pl):
 
 
 @app.cell
-def _(Data, np):
+def _(Data):
     #Get unique value of primary industry and industry
-    PrimaryIndustry = np.sort(Data["Primary Industry"].unique())
-    Industry = np.sort(Data["Industry"].unique())
-    Industry = Industry[1:] # exclude empty 
+    PrimaryIndustry = Data["Primary Industry"].unique().sort()[1:]
+    Industry = Data["Industry"].unique().sort()[1:]
     return (Industry,)
 
 
