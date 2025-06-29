@@ -13,6 +13,7 @@ def _():
     import altair as alt
     from sklearn.linear_model import LinearRegression
     import openpyxl
+    import tabulate
     return LinearRegression, alt, mo, np, pd, pl
 
 
