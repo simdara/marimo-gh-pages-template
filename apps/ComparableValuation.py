@@ -3,12 +3,14 @@ import marimo
 __generated_with = "0.14.7"
 app = marimo.App(width="medium")
 
-@app.cell
-def _(mo):
-    mo.md("## **Company Valuation using Comparable Analysis** \n ***")
-    return
 
 @app.cell
+def _(mo):
+    mo.md("""## **Company Valuation using Comparable Analysis** \n ***""")
+    return
+
+
+@app.cell(hide_code=True)
 def _():
     import marimo as mo
     import pandas as pd
@@ -98,7 +100,11 @@ def _(Data, Indus_dd, checkboxes, pd):
     selectedSubIndustry = subInd["SubInd"][subInd["Selected"]==True].to_numpy()
     usedData = Data[Data["Primary Industry"].isin(selectedSubIndustry)]
 
-    return (usedData,)
+    if Indus_dd.selected_key in ["Banks", "Consumer Finance", "Financial Services", "Insurance"]:
+        bankFinancial = True
+    else:
+        bankFinancial = False
+    return bankFinancial, usedData
 
 
 @app.cell
@@ -118,9 +124,19 @@ def _(keywords_ui, np, usedData):
     else:
         matchedKW = [sum([elem.find(kw)>0 for kw in kws])>0 for elem in usedData["Business Description"]]
     #
-    usedData["matchedKW"] = np.array(matchedKW)
-    filteredData = usedData[usedData["matchedKW"]].iloc[:,0:-1]
-    return (filteredData,)
+    usedData.loc[:,"matchedKW"] = np.array(matchedKW)
+    filteredData_1 = usedData[usedData["matchedKW"]].iloc[:,0:-1]
+    return filteredData_1, matchedKW
+
+
+@app.cell
+def _(matchedKW, mo):
+    if matchedKW.count(True)>=5:
+        message1 = "**"+str(matchedKW.count(True)) + "** *firms matched!*"
+    else:
+        message1 = "**"+str(matchedKW.count(True)) + "** *firms matched! Try to add more key words*"
+    mo.md(message1)
+    return
 
 
 @app.cell
@@ -139,12 +155,116 @@ def _(L_dd, U_dd, mo):
 
 
 @app.cell
+def _(bankFinancial, mo):
+    # Target company inputs
+    # Target company data for plot
+    if bankFinancial:
+        requiredInputs = ["Net Income (US$M)", "Total Equity(US$M)", "ROE (%)"]
+        optionalInputs = ["Company Name", "Asset Rank"]
+    else:
+        requiredInputs = ["Net Income (US$M)", "EBITDA (US$M)", "Total Revenue(US$M)"]
+        optionalInputs = ["Company Name", "Asset-to-GDP"]
+    #
+    reqInputs_mo = mo.ui.array([mo.ui.text(placeholder="required...", label=input) for input in requiredInputs])
+    optInputs_mo = mo.ui.array([mo.ui.text(placeholder="optional...", label=input) for input in optionalInputs])
+    #
+    mo.vstack([mo.md("**Provide Target Company Info:**")
+        ,mo.hstack([mo.vstack(reqInputs_mo), mo.vstack(optInputs_mo)])])
+    return optInputs_mo, reqInputs_mo
+
+
+@app.cell
+def _(bankFinancial, np, optInputs_mo, pd, reqInputs_mo):
+    # collect inputs
+    if bankFinancial:
+    
+        if optInputs_mo.value[0]=="":
+            comName = "Target"
+        else:
+            comName = optInputs_mo.value[0]
+        #
+        if optInputs_mo.value[1]=="":
+            assetRank = np.nan
+        else:
+            assetRank = int(optInputs_mo.value[1])
+        #
+        reqInputs = [float(i) if i!="" else np.nan for i in reqInputs_mo.value]
+        #
+        target_=pd.DataFrame({'Company Name':[comName], 'Net Income':[reqInputs[0]], 'Total Equity, LTM': [reqInputs[1]], 'ROE, LTM':[reqInputs[2]], 'Asset Rank': [assetRank], "Peer_Target": ["Target"]})
+    else:
+        #print(bankFinancial)
+        if optInputs_mo.value[0]=="":
+            comName = "Target"
+        else:
+            comName = optInputs_mo.value[0]
+        #
+        if optInputs_mo.value[1]=="":
+            asset_GDP = np.nan
+        else:
+            asset_GDP = float(optInputs_mo.value[1])
+        #
+        reqInputs = [float(i) if i!="" else np.nan for i in reqInputs_mo.value]
+        #
+        target_=pd.DataFrame({'Company Name':[comName], 'Net Income':[reqInputs[0]], 'EBITDA_IFRS, LTM': [reqInputs[1]], 'Total Revenue, LTM':[reqInputs[2]], 'Asset-to-GDP': [asset_GDP], 'EBITDA Margin, LTM':[100.0*reqInputs[1]/reqInputs[2]], "Peer_Target": ["Target"]})
+    return assetRank, asset_GDP, target_
+
+
+@app.cell
+def _(assetRank, asset_GDP, bankFinancial, filteredData_1, matchedKW, np):
+    # additional filter by target input
+    if bankFinancial:
+        if np.isnan(assetRank)==False:
+            iter = 0
+            maxiter = 10
+            minnMatched = 12
+            step = 1
+            simAsset = (filteredData_1["RankByAssets"]>=max(assetRank-step,1)) & (filteredData_1["RankByAssets"]<=assetRank+step)
+            nMatched = simAsset.tolist().count(True)
+            while (iter<maxiter | nMatched<minnMatched):
+                iter +=1 
+                step +=1
+                simAsset = (filteredData_1["RankByAssets"]>=max(assetRank-step,1)) & (filteredData_1["RankByAssets"]<=assetRank+step)
+                nMatched = simAsset.tolist().count(True)
+                #print(nMatched)
+            filteredData = filteredData_1[simAsset]
+        else:
+            filteredData = filteredData_1
+            nMatched = matchedKW.count(True)
+    else:
+        if np.isnan(asset_GDP)==False:
+            iter = 0
+            maxiter = 10
+            minnMatched = 12
+            step = filteredData_1['Asset-to-GDP'].std()*0.01
+            simAsset = (filteredData_1["Asset-to-GDP"]>=max(asset_GDP-step,0)) & (filteredData_1["Asset-to-GDP"]<=asset_GDP+step)
+            nMatched = simAsset.tolist().count(True)
+            while (iter<maxiter | nMatched<minnMatched):
+                iter +=1 
+                step +=1
+                simAsset = (filteredData_1["Asset-to-GDP"]>=max(asset_GDP-step,0)) & (filteredData_1["Asset-to-GDP"]<=asset_GDP+step)
+                nMatched = simAsset.tolist().count(True)
+                #print(nMatched)
+            filteredData = filteredData_1[simAsset]
+        else:
+            filteredData = filteredData_1
+            nMatched = matchedKW.count(True)
+    return filteredData, nMatched
+
+
+@app.cell
+def _(mo, nMatched):
+
+    msg2 = "**" + str(nMatched) + "** *matched by Asset Rank!*"
+    mo.md(msg2)
+    return
+
+
+@app.cell
 def _(L_dd, U_dd, filteredData):
+    #
     # Find outliers of filtered data from column 8 onwards
     LBound = L_dd.value
     UBound = U_dd.value
-    #print(LBound)
-    #print(UBound)
     #
     nrows = filteredData.shape[0]
     std =filteredData.iloc[:,8:].std()
@@ -159,41 +279,6 @@ def _(L_dd, U_dd, filteredData):
 
 @app.cell
 def _(mo):
-    # Target company inputs
-    # Target company data for plot
-    requiredInputs = ["Net Income (US$M)", "Total Equity(US$M)", "ROE (%)"]
-    optionalInputs = ["Company Name", "Asset Rank"]
-    #
-    reqInputs_mo = mo.ui.array([mo.ui.text(placeholder="required...", label=input) for input in requiredInputs])
-    optInputs_mo = mo.ui.array([mo.ui.text(placeholder="optional...", label=input) for input in optionalInputs])
-    #
-    mo.vstack([mo.md("**Provide Target Company Info:**")
-        ,mo.hstack([mo.vstack(reqInputs_mo), mo.vstack(optInputs_mo)])])
-    return optInputs_mo, reqInputs_mo
-
-
-@app.cell
-def _(np, optInputs_mo, pd, reqInputs_mo):
-    # collect inputs
-    if optInputs_mo.value[0]=="":
-        comName = "Target"
-    else:
-        comName = optInputs_mo.value[0]
-    #
-    if optInputs_mo.value[1]=="":
-        assetRank = np.nan
-    else:
-        assetRank = int(optInputs_mo.value[1])
-    #
-    reqInputs = [float(i) if i!="" else np.nan for i in reqInputs_mo.value]
-    #
-    target_=pd.DataFrame({'Company Name':[comName], 'Net Income':[reqInputs[0]], 'Total Equity, LTM': [reqInputs[1]], 'ROE, LTM':[reqInputs[2]], 'Asset Rank': [assetRank], "Peer_Target": ["Target"]})
-    target_
-    return (target_,)
-
-
-@app.cell
-def _(mo):
     mo.md(
         r"""
     ***
@@ -204,9 +289,9 @@ def _(mo):
 
 
 @app.cell
-def _(Indus_dd, filteredData, mo):
+def _(bankFinancial, filteredData, mo):
     # Create downdown ui for columns
-    if Indus_dd.selected_key in ["Banks", "Consumer Finance", "Financial Services", "Insurance"]:
+    if bankFinancial:
         default_metric = "P/BV, LTM"
     else:
         default_metric = "TEV/EBITDA, LTM"
@@ -304,18 +389,12 @@ def _(Ex_Outliers, filteredData):
     return (treatedData,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(LinearRegression, alt):
     def scatterplot(peerData,TargetData, Xname, Yname):
-        # Regression
-        model = LinearRegression()
+        heig = 400
         xy = peerData[["Company Name",Xname, Yname]].dropna() # drop nulls
-        model.fit(xy[[Xname]], xy[Yname])
-
-        R2 = model.score(xy[[Xname]], xy[Yname])    
-        ##--------------
-        eqtext = f'y = {model.coef_[0]:.2f} x + {model.intercept_:.2f};' +f'\n(R2 = {R2:.2f})'
-
+        #-----------------Base Scatter Plot---------------
         scatter = alt.Chart(xy).mark_point(filled=True,size =50.0).encode(
                 x=alt.X(field=Xname, type='quantitative'),
                 y=alt.Y(field=Yname, type='quantitative'),
@@ -327,75 +406,90 @@ def _(LinearRegression, alt):
                 ]
             ).properties(
                 title=Xname + " vs " + Yname + " Scatter Plot with Regression Line",
-                height=450,
+                height=heig,
                 width='container'
         )
 
         # Add equation line and text
-        reg_line = scatter.transform_regression(
-            Xname, Yname,
-            method="linear",
-        ).mark_line()
-
-        scatterText = reg_line.mark_text(
-            align='left',
-            baseline='top',
-            fontSize=13,
-            dx=10,
-            dy=10,
-            text=eqtext,
-            color = 'cyan'
-        ).encode(
-            x=alt.value(10),  # Position text
-            y=alt.value(10)
-        )
-        ##---------
-        if ~TargetData[Xname].isnull()[0]:
-            # Target company data for plot
-            TData_extended = TargetData.copy() 
-            TData_extended[Yname]=model.predict(TargetData[[Xname]])
+        # Regression
+        model = LinearRegression()
+        # If data is more than 2 points
+        if xy.shape[0]>1:
+            model.fit(xy[[Xname]], xy[Yname])
+            R2 = model.score(xy[[Xname]], xy[Yname])    
+            ##--------------
+            eqtext = f'y = {model.coef_[0]:.2f} x + {model.intercept_:.2f};' +f'\n(R2 = {R2:.2f})'
             #
-            # add label
-            textLabel =f"{TData_extended['Company Name'][0]} ({TData_extended[Xname][0]:.2f}, {TData_extended[Yname][0]:.2f})"
-        
-            TData_extended['label'] = textLabel
-            #-----------------------------------------------------------------
-            scatter_tar = alt.Chart(TData_extended).mark_point(filled=True,size =100.0,color="red").encode(
-                    x=alt.X(field=Xname, type='quantitative'),
-                    y=alt.Y(field=Yname, type='quantitative'),
-                    #color='Peer_Target',
-                    tooltip=[
-                        alt.Tooltip(field="Company Name"),
-                        alt.Tooltip(field=Xname, format=',.2f'),
-                        alt.Tooltip(field=Yname, format=',.2f')
-                    ]
-                ).properties(
-                    title = Xname + " vs " + Yname + " Scatter Plot with Regression Line",
-                    height = 450,
-                    width='container',
+            reg_line = scatter.transform_regression(
+                Xname, Yname,
+                method="linear",
+            ).mark_line()
+    
+            scatterText = reg_line.mark_text(
+                align='left',
+                baseline='top',
+                fontSize=13,
+                dx=10,
+                dy=10,
+                text=eqtext,
+                color = 'cyan'
+            ).encode(
+                x=alt.value(10),  # Position text
+                y=alt.value(10)
                 )
-            scatter_tar_text = alt.Chart(TData_extended).mark_text(
-                dx = -15, 
-                dy = -15,
-                color = "red",
-                fontSize= 15,
-                ).encode(
-                    x=alt.X(field=Xname, type='quantitative'),
-                    y=alt.Y(field=Yname, type='quantitative'),
-                    text = 'label'
-            )
-            chart = scatter + scatterText + reg_line + scatter_tar + scatter_tar_text
+            ##---------
+            if ~TargetData[Xname].isnull()[0]:
+                # Target company data for plot
+                TData_extended = TargetData.copy() 
+                TData_extended[Yname]=model.predict(TargetData[[Xname]])
+                #
+                # add label
+                textLabel =f"{TData_extended['Company Name'][0]} ({TData_extended[Xname][0]:.2f}, {TData_extended[Yname][0]:.2f})"
+    
+                TData_extended['label'] = textLabel
+                #-----------------------------------------------------------------
+                scatter_tar = alt.Chart(TData_extended).mark_point(filled=True,size =100.0,color="red").encode(
+                        x=alt.X(field=Xname, type='quantitative'),
+                        y=alt.Y(field=Yname, type='quantitative'),
+                        #color='Peer_Target',
+                        tooltip=[
+                            alt.Tooltip(field="Company Name"),
+                            alt.Tooltip(field=Xname, format=',.2f'),
+                            alt.Tooltip(field=Yname, format=',.2f')
+                        ]
+                    ).properties(
+                        title = Xname + " vs " + Yname + " Scatter Plot with Regression Line",
+                        height = heig,
+                        width='container',
+                    )
+                scatter_tar_text = alt.Chart(TData_extended).mark_text(
+                    dx = -15, 
+                    dy = -15,
+                    color = "red",
+                    fontSize= 15,
+                    ).encode(
+                        x=alt.X(field=Xname, type='quantitative'),
+                        y=alt.Y(field=Yname, type='quantitative'),
+                        text = 'label'
+                )
+                chart = scatter + scatterText + reg_line + scatter_tar + scatter_tar_text
+            else:
+                chart = scatter + scatterText + reg_line
         else:
-            chart = scatter + scatterText + reg_line
+            chart = scatter
         return chart
     return (scatterplot,)
 
 
 @app.cell
-def _(mo, scatterplot, target_, treatedData):
-    target=target_[["Company Name", "ROE, LTM", "Peer_Target"]]
+def _(bankFinancial, mo, scatterplot, target_, treatedData):
+    if bankFinancial:
+        target=target_[["Company Name", "ROE, LTM", "Peer_Target"]]
+        chart3 = scatterplot(treatedData, target,"ROE, LTM", "P/BV, LTM")
+    else:
+        target=target_[["Company Name", "EBITDA Margin, LTM", "Peer_Target"]]
+        chart3 = scatterplot(treatedData, target,"EBITDA Margin, LTM", "TEV/Total Revenue, LTM")
 
-    chart3 = scatterplot(treatedData, target,"ROE, LTM", "P/BV, LTM")
 
     subtitle_div = mo.md("###**ScatterPlot with Regression Line**")
     scatterplotdiv = mo.accordion({'Scatter Plot with regression👉': chart3})
