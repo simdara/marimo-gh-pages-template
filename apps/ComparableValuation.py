@@ -26,7 +26,7 @@ def _():
 @app.cell(hide_code=True)
 def _(np, pd):
     # Read raw excel file
-    DataRaw = pd.read_csv("Data/Data_ASEANFirms.csv",dtype=str)
+    DataRaw = pd.read_excel("https://simdara.github.io/Data/Data_ASEANFirms.xlsx",dtype=str)
     Data = DataRaw.iloc[:,:]
     # Convert string to float from column 8 onwards
     allColnames = DataRaw.columns # all column names
