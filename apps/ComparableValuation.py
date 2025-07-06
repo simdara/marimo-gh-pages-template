@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.14.7"
+__generated_with = "0.14.10"
 app = marimo.App(width="medium")
 
 
@@ -23,41 +23,28 @@ def _():
     return LinearRegression, alt, mo, np, pd
 
 
-@app.cell
-def _(pd):
+@app.cell(hide_code=True)
+def _(np, pd):
     # Read raw excel file
-    DataRaw = pd.read_excel("https://simdara.github.io/Data/Data_ASEANFirms.xlsx",dtype=str)
-    #DataRaw = pl.from_pandas(DataRaw)
+    DataRaw = pd.read_excel("Learnmarimo/Data_ASEANFirms.xlsx",dtype=str)
     Data = DataRaw.iloc[:,:]
-    return Data, DataRaw
-
-
-@app.cell
-def _(Data, DataRaw, pd):
     # Convert string to float from column 8 onwards
     allColnames = DataRaw.columns # all column names
     cols_to_convert = allColnames[8:]
     #
     for c in cols_to_convert:
         Data[c] = pd.to_numeric(DataRaw[c],errors='coerce')
-    return
-
-
-@app.cell
-def _(Data, np):
+    #
     #Get unique value of primary industry and industry
     PrimaryIndustry = np.sort(Data["Primary Industry"].dropna().unique())
     Industry = np.sort(Data["Industry"].dropna().unique())
-    return (Industry,)
-
-
-@app.cell
-def _(Data, Industry):
     # create dictionary with industry as key and sub-industry as value
     IndustryDict ={}
     for ind in Industry:
         IndustryDict [ind] = Data["Primary Industry"][Data["Industry"]==ind].unique()
-    return (IndustryDict,)
+    #
+    CamGDP = 45150.0 # in USD'M
+    return CamGDP, Data, IndustryDict
 
 
 @app.cell
@@ -98,12 +85,13 @@ def _(checkboxes, mo):
 def _(Data, Indus_dd, checkboxes, pd):
     subInd = pd.DataFrame({"SubInd": Indus_dd.value, "Selected":checkboxes.value}) # convert pd Dataframe
     selectedSubIndustry = subInd["SubInd"][subInd["Selected"]==True].to_numpy()
-    usedData = Data[Data["Primary Industry"].isin(selectedSubIndustry)]
+    usedData = Data[Data["Primary Industry"].isin(selectedSubIndustry)].copy()
 
     if Indus_dd.selected_key in ["Banks", "Consumer Finance", "Financial Services", "Insurance"]:
         bankFinancial = True
     else:
         bankFinancial = False
+    #
     return bankFinancial, usedData
 
 
@@ -124,8 +112,8 @@ def _(keywords_ui, np, usedData):
     else:
         matchedKW = [sum([elem.find(kw)>0 for kw in kws])>0 for elem in usedData["Business Description"]]
     #
-    usedData.loc[:,"matchedKW"] = np.array(matchedKW)
-    filteredData_1 = usedData[usedData["matchedKW"]].iloc[:,0:-1]
+    usedData["matchedKW"] = np.array(matchedKW)
+    filteredData_1 = usedData.loc[usedData["matchedKW"],:].iloc[:,0:-1]
     return filteredData_1, matchedKW
 
 
@@ -150,7 +138,7 @@ def _(mo):
 
 @app.cell
 def _(L_dd, U_dd, mo):
-    mo.vstack([mo.md("**Set outlier:** "),L_dd, U_dd, mo.md("***")])
+    mo.vstack([mo.md("***"), mo.md("**Set outlier:** "),L_dd, U_dd,mo.md("***")])
     return
 
 
@@ -160,10 +148,10 @@ def _(bankFinancial, mo):
     # Target company data for plot
     if bankFinancial:
         requiredInputs = ["Net Income (US$M)", "Total Equity(US$M)", "ROE (%)"]
-        optionalInputs = ["Company Name", "Asset Rank"]
+        optionalInputs = ["Company Name", "Total Asset(US$M)", "Asset Rank"]
     else:
-        requiredInputs = ["Net Income (US$M)", "EBITDA (US$M)", "Total Revenue(US$M)"]
-        optionalInputs = ["Company Name", "Asset-to-GDP"]
+        requiredInputs = ["EBITDA (US$M)", "Total Revenue(US$M)", "Cash (US$M)","Debt (US$'M)"]
+        optionalInputs = ["Company Name","Net Income (US$M)", "D/E"]
     #
     reqInputs_mo = mo.ui.array([mo.ui.text(placeholder="required...", label=input) for input in requiredInputs])
     optInputs_mo = mo.ui.array([mo.ui.text(placeholder="optional...", label=input) for input in optionalInputs])
@@ -174,23 +162,29 @@ def _(bankFinancial, mo):
 
 
 @app.cell
-def _(bankFinancial, np, optInputs_mo, pd, reqInputs_mo):
+def _(CamGDP, bankFinancial, np, optInputs_mo, pd, reqInputs_mo):
     # collect inputs
     if bankFinancial:
-    
+
         if optInputs_mo.value[0]=="":
             comName = "Target"
         else:
             comName = optInputs_mo.value[0]
         #
-        if optInputs_mo.value[1]=="":
+        if optInputs_mo.value[2]=="":
             assetRank = np.nan
         else:
-            assetRank = int(optInputs_mo.value[1])
+            assetRank = int(optInputs_mo.value[2])
+        if optInputs_mo.value[1]=="":
+            total_asset = np.nan
+            asset_GDP = np.nan
+        else:
+            total_asset = float(optInputs_mo.value[1])
+            asset_GDP = total_asset*100.0/CamGDP
         #
         reqInputs = [float(i) if i!="" else np.nan for i in reqInputs_mo.value]
         #
-        target_=pd.DataFrame({'Company Name':[comName], 'Net Income':[reqInputs[0]], 'Total Equity, LTM': [reqInputs[1]], 'ROE, LTM':[reqInputs[2]], 'Asset Rank': [assetRank], "Peer_Target": ["Target"]})
+        target_=pd.DataFrame({'Company Name':[comName], 'Net Income':[reqInputs[0]], 'Total Equity, LTM': [reqInputs[1]], 'ROE, LTM':[reqInputs[2]], 'RankByAssets': [assetRank], "Total Assset": [total_asset], 'Asset-to-GDP': [asset_GDP]})
     else:
         #print(bankFinancial)
         if optInputs_mo.value[0]=="":
@@ -199,62 +193,102 @@ def _(bankFinancial, np, optInputs_mo, pd, reqInputs_mo):
             comName = optInputs_mo.value[0]
         #
         if optInputs_mo.value[1]=="":
-            asset_GDP = np.nan
+            NI = np.nan
         else:
-            asset_GDP = float(optInputs_mo.value[1])
+            NI = float(optInputs_mo.value[1])
+        if optInputs_mo.value[2]=="":
+            DE = np.nan
+        else:
+            DE = float(optInputs_mo.value[2])
         #
         reqInputs = [float(i) if i!="" else np.nan for i in reqInputs_mo.value]
         #
-        target_=pd.DataFrame({'Company Name':[comName], 'Net Income':[reqInputs[0]], 'EBITDA_IFRS, LTM': [reqInputs[1]], 'Total Revenue, LTM':[reqInputs[2]], 'Asset-to-GDP': [asset_GDP], 'EBITDA Margin, LTM':[100.0*reqInputs[1]/reqInputs[2]], "Peer_Target": ["Target"]})
-    return assetRank, asset_GDP, target_
+        target_=pd.DataFrame({'Company Name':[comName], 'Net Income':[NI], 'EBITDA_IFRS, LTM': [reqInputs[0]], 'Total Revenue, LTM':[reqInputs[1]], 'EBITDA Margin, LTM':[100.0*reqInputs[0]/reqInputs[1]], "Revenue-to-GDP": [reqInputs[0]*100/CamGDP], "D/E": [DE], "Cash": reqInputs[2], "Debt": reqInputs[3]})
+    #target_
+    return (target_,)
 
 
 @app.cell
-def _(assetRank, asset_GDP, bankFinancial, filteredData_1, matchedKW, np):
-    # additional filter by target input
+def _(np):
+    def filterBy(peerDF, targetDF, keyVar, properties):
+        """
+        Filter peer by target data to find peer similar to the target
+        Inputs:
+            - peerDF: (dataframe) peer data
+            - targetDF: (dataframe) target data
+            - keyVar: (string) key info of the target based on which the data will be filter
+            - properties: a dictionary
+                  maxiter : (int) max iteration
+                  minnMatched: (int) min number of matched
+                  step: step 
+        Outputs: 
+            - [simPeers, nMatched]
+               simPeers: A Series of boolean (True; False) specifying which row will be selected
+               nMatched: number of matched
+        """
+        #
+        tarVar = targetDF[keyVar][0]
+        maxiter = properties["maxiter"]
+        minnMatched = properties["minnMatched"]
+        step = properties["step"]
+        #
+        if np.isnan(tarVar)==False:
+            iter = 0
+            #
+
+            simPeers = (peerDF[keyVar]>=tarVar-step) & (peerDF[keyVar]<=tarVar+step) #similar peers 
+            nMatched = simPeers.tolist().count(True) # number of matched similar peers
+
+            while (iter<maxiter and nMatched<minnMatched):
+                iter +=1 
+                simPeers = (peerDF[keyVar]>=tarVar-step*iter) & (peerDF[keyVar]<=tarVar+step*iter)
+                nMatched = simPeers.tolist().count(True)
+                #
+                #print(f"iter: {iter}, nMatched: {nMatched}")
+
+        else:
+            simPeers = (peerDF[keyVar]!=np.nan)
+            nMatched = simPeers.tolist().count(True)
+        #print(f"iter: {iter}, nMatched: {nMatched}")
+        return simPeers
+    return (filterBy,)
+
+
+@app.cell
+def _(bankFinancial, filterBy, filteredData_1, target_):
     if bankFinancial:
-        if np.isnan(assetRank)==False:
-            iter = 0
-            maxiter = 10
-            minnMatched = 12
-            step = 1
-            simAsset = (filteredData_1["RankByAssets"]>=max(assetRank-step,1)) & (filteredData_1["RankByAssets"]<=assetRank+step)
-            nMatched = simAsset.tolist().count(True)
-            while (iter<maxiter | nMatched<minnMatched):
-                iter +=1 
-                step +=1
-                simAsset = (filteredData_1["RankByAssets"]>=max(assetRank-step,1)) & (filteredData_1["RankByAssets"]<=assetRank+step)
-                nMatched = simAsset.tolist().count(True)
-                #print(nMatched)
-            filteredData = filteredData_1[simAsset]
-        else:
-            filteredData = filteredData_1
-            nMatched = matchedKW.count(True)
+        properties = {}
+        properties["maxiter"] = 20
+        properties["minnMatched"] = 15
+        properties["step"] = filteredData_1["Asset-to-GDP"].std()*0.1
+        sim_assetGDP = filterBy(filteredData_1,target_,"Asset-to-GDP",properties)
+        #
+        properties['step'] =1
+        sim_assetRank = filterBy(filteredData_1,target_,"RankByAssets",properties)
+        #
+        simPeers = sim_assetGDP & sim_assetRank
     else:
-        if np.isnan(asset_GDP)==False:
-            iter = 0
-            maxiter = 10
-            minnMatched = 12
-            step = filteredData_1['Asset-to-GDP'].std()*0.01
-            simAsset = (filteredData_1["Asset-to-GDP"]>=max(asset_GDP-step,0)) & (filteredData_1["Asset-to-GDP"]<=asset_GDP+step)
-            nMatched = simAsset.tolist().count(True)
-            while (iter<maxiter | nMatched<minnMatched):
-                iter +=1 
-                step +=1
-                simAsset = (filteredData_1["Asset-to-GDP"]>=max(asset_GDP-step,0)) & (filteredData_1["Asset-to-GDP"]<=asset_GDP+step)
-                nMatched = simAsset.tolist().count(True)
-                #print(nMatched)
-            filteredData = filteredData_1[simAsset]
-        else:
-            filteredData = filteredData_1
-            nMatched = matchedKW.count(True)
+        properties = {}
+        properties["maxiter"] = 30
+        properties["minnMatched"] = 15
+        properties["step"] = filteredData_1["Revenue-to-GDP"].std()*0.1
+        sim_revenueGDP = filterBy(filteredData_1,target_,"Revenue-to-GDP",properties)
+        #
+        properties["step"] = filteredData_1["D/E"].std()*0.1
+        sim_DE = filterBy(filteredData_1,target_,"D/E",properties)
+        #
+        properties["step"] = filteredData_1["EBITDA Margin, LTM"].std()*0.1
+        sim_EBITDAMargin = filterBy(filteredData_1,target_,"EBITDA Margin, LTM",properties)
+        simPeers = sim_revenueGDP & sim_DE & sim_EBITDAMargin
+    #
+    filteredData = filteredData_1[simPeers]
+    nMatched = simPeers.tolist().count(True)
     return filteredData, nMatched
 
 
 @app.cell
 def _(mo, nMatched):
-
-    msg2 = "**" + str(nMatched) + "** *matched by Asset Rank!*"
+    msg2 = "**" + str(nMatched) + "** *matched by Similarity*"
     mo.md(msg2)
     return
 
@@ -272,9 +306,113 @@ def _(L_dd, U_dd, filteredData):
     normFilteredData = filteredData.iloc[:,8:].copy()
     for cn in filteredData.iloc[:,8:].columns:
         normFilteredData[cn] = (filteredData[cn]-mu[cn])/std[cn]
-
+    # dataframe that store True/False for all key metrics
     Ex_Outliers = (normFilteredData>LBound) & (normFilteredData<UBound)
-    return (Ex_Outliers,)
+    # Treated outliers by setting them none
+    treatedData = filteredData.copy()
+    for j in Ex_Outliers.columns:
+        treatedData.loc[~Ex_Outliers[j],j]=None
+    return Ex_Outliers, treatedData
+
+
+@app.cell
+def _(LinearRegression, bankFinancial, nMatched, np, target_, treatedData):
+    # Valuation 
+    if bankFinancial:
+        # Based on P/BV, LTM
+        medianPB = treatedData['P/BV, LTM'].median()
+        if ~np.isnan(target_["Total Equity, LTM"])[0]:
+            PB_Valuation = medianPB*target_["Total Equity, LTM"]
+        else:
+            PB_Valuation = np.nan
+        # Based on P/E Normalized, LTM
+        medianPE = treatedData['P/E, Normalized, LTM'].median()
+        if ~np.isnan(target_["Net Income"])[0]:
+            PE_Valuation = medianPE*target_["Net Income"]
+        else:
+            PE_Valuation = np.nan
+        # Based on regression model
+        model = LinearRegression()
+        Xname = "ROE, LTM"
+        Yname = "P/BV, LTM"
+        xy = treatedData[["Company Name",Xname, Yname]].dropna() # drop nulls
+        model.fit(xy[[Xname]], xy[Yname])
+        R2 = model.score(xy[[Xname]], xy[Yname])
+        #
+        if (R2>=0.25 and nMatched>=5 and ~np.isnan(target_[Xname])[0]):
+            target_[Yname]=model.predict(target_[[Xname]])
+        else:
+            target_[Yname] = np.nan
+        Reg_Valuation = target_[Yname]*target_["Total Equity, LTM"]
+        #
+        target_['P/BV_Valuation'] = round(PB_Valuation,1)
+        target_['P/E_Valuation'] = round(PE_Valuation,1)
+        target_['P/BV-ROE_Valuation'] = round(Reg_Valuation,1)
+        ValuationMethods = ['P/BV_Valuation','P/E_Valuation','P/BV-ROE_Valuation']
+    else:
+        # Based on EV/EBITDA, LTM
+        medianEVEBITDA = treatedData['TEV/EBITDA, LTM'].median()
+        if ~np.isnan(target_["EBITDA_IFRS, LTM"])[0]:
+            EVEBITDA_Valuation = medianEVEBITDA*target_["EBITDA_IFRS, LTM"]-target_["Debt"]+target_["Cash"]
+        else:
+            EVEBITDA_Valuation = np.nan
+        # Based on P/E Normalized, LTM
+        medianPE = treatedData['P/E, Normalized, LTM'].median()
+        if ~np.isnan(target_["Net Income"])[0]:
+            PE_Valuation = medianPE*target_["Net Income"]
+        else:
+            PE_Valuation = np.nan
+        # Based on regression model
+        model = LinearRegression()
+        Xname = "EBITDA Margin, LTM"
+        Yname = "TEV/Total Revenue, LTM"
+        xy = treatedData[["Company Name",Xname, Yname]].dropna() # drop nulls
+        model.fit(xy[[Xname]], xy[Yname])
+        R2 = model.score(xy[[Xname]], xy[Yname])
+        #
+        if (R2>=0.25 and nMatched>=5 and ~np.isnan(target_[Xname])[0]):
+            target_[Yname]=model.predict(target_[[Xname]])
+        else:
+            target_[Yname] = np.nan
+        Reg_Valuation = target_[Yname]*target_["Total Revenue, LTM"] -target_["Debt"]+target_["Cash"]
+        #
+        target_['EV/EBITDA_Valuation'] = round(EVEBITDA_Valuation,1)
+        target_['P/E_Valuation'] = round(PE_Valuation,1)
+        target_['TEV/Revenue-EBITDAMargin_Valuation'] = round(Reg_Valuation,1)
+        ValuationMethods = ['EV/EBITDA_Valuation','P/E_Valuation','TEV/Revenue-EBITDAMargin_Valuation']
+
+    return (ValuationMethods,)
+
+
+@app.cell
+def _(ValuationMethods, alt, mo, pd, target_, treatedData):
+    # Melt the DataFrame to long format for easier plotting
+    target_long = pd.melt(target_, value_vars=ValuationMethods, var_name='Valuation_Method', value_name='Valuation')
+
+    # Create the horizontal bar chart with data labels
+    ValRes_BarChart = alt.Chart(target_long).mark_bar(size=30).encode(
+        y=alt.Y('Valuation_Method:N', title='Valuation Method'),
+        x=alt.X('Valuation:Q', title='Valuation'),
+        tooltip=['Valuation_Method', alt.Tooltip('Valuation', format=",.1f")]
+    ).properties(
+        title='Company Valuation',
+        width='container',
+        height = 200
+    )
+    ValRes_BarChart_text = ValRes_BarChart.mark_text(
+        align='left',
+        baseline='middle',
+        color ='red',
+        dx=3  # Adjust horizontal offset
+    ).encode(
+        text=alt.Text('Valuation:Q', format=",.1f")
+    )
+
+    Valuation = target_[ValuationMethods].copy()
+    subtitle1 = mo.md("###**Company Valuation:**")
+    priceDate = mo.md("*Based on stock price of peers as of "+treatedData.columns[8][11:]+"*")
+    mo.vstack([mo.md("***"),subtitle1, priceDate,ValRes_BarChart + ValRes_BarChart_text, Valuation])
+    return
 
 
 @app.cell
@@ -303,7 +441,7 @@ def _(bankFinancial, filteredData, mo):
                               label="Select Key Metrics 2", 
                               value="P/E, Normalized, LTM")
 
-    mo.hstack([Metrics_dd, Metrics_dd2])
+    mo.accordion({"Show metrics👉":mo.hstack([Metrics_dd, Metrics_dd2])})
     return Metrics_dd, Metrics_dd2
 
 
@@ -367,7 +505,7 @@ def _(alt):
                         title="Number of records",
                     ),
                 ],
-            ).properties(width="container",height=300).configure_view(stroke=None)
+            ).properties(width='container',height=250)
         )
         return hisChart
 
@@ -376,17 +514,9 @@ def _(alt):
 
 @app.cell
 def _(Chart_1, Chart_2, mo, table1, table2):
-    mo.hstack([mo.vstack([Chart_1,table1]),mo.vstack([Chart_2,table2])])
+    histogramDiv = mo.accordion({"Show histogram 👉": mo.hstack([mo.vstack([Chart_1,table1]),mo.vstack([Chart_2,table2])])})
+    histogramDiv
     return
-
-
-@app.cell
-def _(Ex_Outliers, filteredData):
-    # Treated outliers by setting them none
-    treatedData = filteredData.copy()
-    for j in Ex_Outliers.columns:
-        treatedData.loc[~Ex_Outliers[j],j]=None
-    return (treatedData,)
 
 
 @app.cell(hide_code=True)
@@ -424,7 +554,7 @@ def _(LinearRegression, alt):
                 Xname, Yname,
                 method="linear",
             ).mark_line()
-    
+
             scatterText = reg_line.mark_text(
                 align='left',
                 baseline='top',
@@ -445,7 +575,7 @@ def _(LinearRegression, alt):
                 #
                 # add label
                 textLabel =f"{TData_extended['Company Name'][0]} ({TData_extended[Xname][0]:.2f}, {TData_extended[Yname][0]:.2f})"
-    
+
                 TData_extended['label'] = textLabel
                 #-----------------------------------------------------------------
                 scatter_tar = alt.Chart(TData_extended).mark_point(filled=True,size =100.0,color="red").encode(
@@ -484,10 +614,10 @@ def _(LinearRegression, alt):
 @app.cell
 def _(bankFinancial, mo, scatterplot, target_, treatedData):
     if bankFinancial:
-        target=target_[["Company Name", "ROE, LTM", "Peer_Target"]]
+        target=target_[["Company Name", "ROE, LTM"]]
         chart3 = scatterplot(treatedData, target,"ROE, LTM", "P/BV, LTM")
     else:
-        target=target_[["Company Name", "EBITDA Margin, LTM", "Peer_Target"]]
+        target=target_[["Company Name", "EBITDA Margin, LTM"]]
         chart3 = scatterplot(treatedData, target,"EBITDA Margin, LTM", "TEV/Total Revenue, LTM")
 
 
